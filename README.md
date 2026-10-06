@@ -1,1 +1,122 @@
-# C-digo-y-Simulaci-n-en-MATLAB-
+% =========================================================================
+% UNIVERSIDAD NACIONAL ABIERTA Y A DISTANCIA - UNAD
+% Escuela de Ciencias Básicas, Tecnología e Ingeniería (ECBTI)
+% Curso: Software para Ingeniería (Código: 203036)
+% Reto 3: Algoritmo de control y cargas - Simulación de Micro-red Rural
+% =========================================================================
+
+% Limpieza del entorno de trabajo y la ventana de comandos
+clear;
+clc;
+
+%% 1. PARÁMETROS OPERATIVOS Y CONDICIONES INICIALES DEL HARDWARE
+Capacidad_bat = 100.0;  % Capacidad nominal del banco de baterías en kWh
+SOC = 50.0;            % Estado de Carga inicial de seguridad (50%)
+
+% -------------------------------------------------------------------------
+% Vectores de generación renovable híbrida (24 posiciones horarias en kWh)
+% -------------------------------------------------------------------------
+% Generación solar fotovoltaica: activa entre las 06:00 y las 18:00
+E_solar = [0.0, 0.0, 0.0, 0.0, 0.0, 0.5, 3.2, 7.8, 12.5, 15.0, ...
+           16.8, 17.5, 16.2, 13.8, 10.2, 5.8, 2.2, 0.4, 0.0, 0.0, ...
+           0.0, 0.0, 0.0, 0.0];
+
+% Generación eólica: perfil oscilante durante el ciclo diurno y nocturno
+E_eolica = [3.2, 3.5, 2.8, 3.0, 3.8, 3.1, 2.4, 2.0, 1.8, 1.5, ...
+            2.1, 2.3, 1.9, 2.4, 3.1, 4.0, 4.6, 4.8, 4.2, 3.6, ...
+            3.0, 2.6, 2.1, 2.4];
+
+% -------------------------------------------------------------------------
+% Vectores de demanda comunitaria (24 posiciones horarias en kWh)
+% -------------------------------------------------------------------------
+% Escuela Rural (Carga Crítica): jornada escolar activa de 07:00 a 17:00
+E_escuela = [0.5, 0.5, 0.5, 0.5, 0.5, 1.0, 3.5, 4.2, 4.5, 4.5, ...
+             4.5, 4.2, 4.0, 4.0, 3.8, 3.5, 2.0, 0.8, 0.5, 0.5, ...
+             0.5, 0.5, 0.5, 0.5];
+
+% Bombeo Agrícola (Carga Semicrítica): riego programado mañana y tarde
+E_bombeo = [0.0, 0.0, 0.0, 0.0, 0.0, 2.0, 4.5, 5.0, 5.0, 0.0, ...
+            0.0, 0.0, 0.0, 4.0, 5.0, 4.5, 2.0, 0.0, 0.0, 0.0, ...
+            0.0, 0.0, 0.0, 0.0];
+
+% Alumbrado Público (Carga No Crítica): luminarias encendidas de noche
+E_alumbrado = [3.5, 3.5, 3.5, 3.5, 3.5, 1.5, 0.0, 0.0, 0.0, 0.0, ...
+               0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2.0, 3.5, 3.5, ...
+               3.5, 3.5, 3.5, 3.5];
+
+%% 2. ENCABEZADO DEL REPORTE TABULADO EN CONSOLA
+fprintf('=========================================================================================================\n');
+fprintf('                  SISTEMA INTELIGENTE DE GESTIÓN ENERGÉTICA (SIGE) - REPORTE DE 24 HORAS                 \n');
+fprintf('=========================================================================================================\n');
+fprintf('%-5s | %-10s | %-10s | %-10s | %-8s | %-8s | %-8s | %-10s | %-18s\n', ...
+        'Hora', 'Gen(kWh)', 'Dem(kWh)', 'Bal(kWh)', 'SOC(%)', 'Escuela', 'Bombeo', 'Alumbrado', 'Ruta Operativa');
+fprintf('---------------------------------------------------------------------------------------------------------\n');
+
+%% 3. BUCLE ITERATIVO DE CONTROL (SIMULACIÓN DE 24 HORAS)
+for hora = 1:24
+    % Sumatoria de generación híbrida y demanda agregada en la hora actual
+    E_gen = E_solar(hora) + E_eolica(hora);
+    E_dem = E_escuela(hora) + E_bombeo(hora) + E_alumbrado(hora);
+    
+    % Cálculo del balance algebraico instantáneo
+    Balance = E_gen - E_dem;
+    
+    % Bifurcación condicional: Superávit vs. Déficit
+    if E_gen >= E_dem
+        % --- ESCENARIO DE SUPERÁVIT ENERGÉTICO ---
+        Excedente = Balance;
+        % Inyección de energía al banco de baterías (conversión dimensional a %)
+        SOC = SOC + (Excedente / Capacidad_bat) * 100.0;
+        
+        % Límite superior de seguridad física contra sobrecarga
+        if SOC > 100.0
+            SOC = 100.0;
+        end
+        
+        % Asignación de actuadores: todas las cargas energizadas
+        estado_escuela   = 'ON';
+        estado_bombeo    = 'ON';
+        estado_alumbrado = 'ON';
+        ruta_operativa   = 'Superavit (Carga)';
+        
+    else
+        % --- ESCENARIO DE DÉFICIT ENERGÉTICO ---
+        Faltante = abs(Balance);
+        % Extracción de energía del banco de baterías
+        SOC = SOC - (Faltante / Capacidad_bat) * 100.0;
+        
+        % Límite inferior de protección contra descarga profunda
+        if SOC < 0.0
+            SOC = 0.0;
+        end
+        
+        % Protocolo de Deslastre Jerárquico de Cargas (Load Shedding)
+        if SOC > 40.0
+            % Ruta Segura: capacidad suficiente en batería
+            estado_escuela   = 'ON';
+            estado_bombeo    = 'ON';
+            estado_alumbrado = 'ON';
+            ruta_operativa   = 'Ruta Segura';
+            
+        elseif (SOC <= 40.0) && (SOC > 20.0)
+            % Ruta de Alerta: desconexión de carga no crítica (Alumbrado)
+            estado_escuela   = 'ON';
+            estado_bombeo    = 'ON';
+            estado_alumbrado = 'OFF';
+            ruta_operativa   = 'Ruta Alerta';
+            
+        else
+            % Ruta de Emergencia (SOC <= 20%): desconexión de bombeo y alumbrado
+            estado_escuela   = 'ON';
+            estado_bombeo    = 'OFF';
+            estado_alumbrado = 'OFF';
+            ruta_operativa   = 'Ruta Emergencia';
+        end
+    end
+    
+    % Impresión formateada del registro horario en la consola de comandos
+    fprintf('H%-4d | %10.2f | %10.2f | %10.2f | %7.2f%% | %-8s | %-8s | %-10s | %-18s\n', ...
+            hora, E_gen, E_dem, Balance, SOC, estado_escuela, estado_bombeo, estado_alumbrado, ruta_operativa);
+end
+
+fprintf('=========================================================================================================\n');
